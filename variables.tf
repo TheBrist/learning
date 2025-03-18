@@ -101,3 +101,8 @@ variable "gcp_access_token" {
   type = string
   nullable = true
 }
+
+variable "artifact_registry_admin" {
+  type = string
+  nullable = true
+}

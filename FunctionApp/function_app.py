@@ -44,6 +44,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         response = requests.post(gcp_url, json=request_body)
         
         if response.status_code == 200:
+            
             return func.HttpResponse(
                 "Request forwarded successfully to GCP",
                 status_code=200

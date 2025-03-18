@@ -217,6 +217,15 @@ resource "google_artifact_registry_repository" "my_repo" {
   format        = "DOCKER"
   project       = var.project_id_01
 }
+
+resource "google_artifact_registry_repository_iam_binding" "binding" {
+  project = var.project_id_01
+  location = var.location
+  repository = google_artifact_registry_repository.my_repo.name
+  role = "roles/artifactregistry.reader"
+  members = ["user:${var.artifact_registry_admin}"]
+}
+
 resource "google_iam_workload_identity_pool" "pool" {
   workload_identity_pool_id = "provider-pool"
   display_name              = "Provider workload pool"

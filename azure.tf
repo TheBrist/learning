@@ -103,8 +103,31 @@ resource "azurerm_network_security_group" "nsg_vm" {
   }
 
   security_rule {
-    name                       = "Allow-FunctionApp-HTTP"
+    name                       = "Allow-FunctionApp-HTTPS"
     priority                   = 101
+    direction                  = "Outbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "443"
+    source_address_prefix      = local.subnets[var.subnet_vm_name].address
+    destination_address_prefix = local.subnets[var.subnet_function_app_name].address
+  }
+
+  security_rule {
+    name                       = "Allow-FunctionApp-PE-HTTPS"
+    priority                   = 102
+    direction                  = "Outbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "443"
+    source_address_prefix      = local.subnets[var.subnet_vm_name].address
+    destination_address_prefix = local.subnets["subnet-private-endpoints"].address
+  }
+  security_rule {
+    name                       = "Allow-FunctionApp-HTTP"
+    priority                   = 103
     direction                  = "Outbound"
     access                     = "Allow"
     protocol                   = "Tcp"
@@ -114,6 +137,17 @@ resource "azurerm_network_security_group" "nsg_vm" {
     destination_address_prefix = local.subnets[var.subnet_function_app_name].address
   }
 
+  security_rule {
+    name                       = "Allow-FunctionApp-PE-HTTP"
+    priority                   = 104
+    direction                  = "Outbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "80"
+    source_address_prefix      = local.subnets[var.subnet_vm_name].address
+    destination_address_prefix = local.subnets["subnet-private-endpoints"].address
+  }
   security_rule {
     name                       = "Allow-FA-PE"
     priority                   = 100
@@ -127,9 +161,20 @@ resource "azurerm_network_security_group" "nsg_vm" {
   }
 
   security_rule {
-    name                       = "Deny-All"
+    name                       = "Deny-All-Inbound"
     priority                   = 200
     direction                  = "Inbound"
+    access                     = "Deny"
+    protocol                   = "*"
+    source_port_range          = "*"
+    destination_port_range     = "*"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+  security_rule {
+    name                       = "Deny-All-Outbound"
+    priority                   = 200
+    direction                  = "Outbound"
     access                     = "Deny"
     protocol                   = "*"
     source_port_range          = "*"
@@ -179,8 +224,13 @@ resource "azurerm_network_interface" "vm_nic" {
   }
 }
 
+resource "azurerm_subnet_network_security_group_association" "nsg_to_vm" {
+  subnet_id                 = azurerm_subnet.subnet[var.subnet_vm_name].id
+  network_security_group_id = azurerm_network_security_group.nsg_vm.id
+}
+
 resource "azurerm_network_interface_security_group_association" "nsg_to_vm_nic" {
-  network_interface_id      = azurerm_network_interface.vm_nic.id
+  network_interface_id = azurerm_network_interface.vm_nic.id
   network_security_group_id = azurerm_network_security_group.nsg_vm.id
 }
 
@@ -209,9 +259,9 @@ resource "azurerm_virtual_machine" "vm" {
   }
 
   storage_image_reference {
-    publisher = "MicrosoftWindowsServer"
-    offer     = "WindowsServer"
-    sku       = "2019-Datacenter"
+    publisher = "MicrosoftWindowsDesktop"
+    offer     = "Windows-10"
+    sku       = "win10-22h2-pro"
     version   = "latest"
   }
 
@@ -300,7 +350,7 @@ resource "azurerm_linux_function_app" "function_app" {
       action     = "Deny"
       priority   = 200
     }
-  
+
     application_stack {
       python_version = "3.12"
     }
@@ -309,9 +359,9 @@ resource "azurerm_linux_function_app" "function_app" {
   app_settings = {
     "FUNCTIONS_WORKER_RUNTIME" = "python"
     "WEBSITE_RUN_FROM_PACKAGE" = 1
-    "GCP_LB_URL"               =  module.external-lb.address
+    "GCP_LB_URL"               = module.external-lb.address
     "GCP_AUDIENCE"             = "https://iam.googleapis.com/projects/${module.project_01.number}/locations/global/workloadIdentityPools/provider-pool/subject/azure"
-    "GCP_ACCESS_TOKEN" = var.gcp_access_token
+    "GCP_ACCESS_TOKEN"         = var.gcp_access_token
   }
 
   identity {
