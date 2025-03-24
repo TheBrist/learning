@@ -45,7 +45,7 @@ module "vpc" {
 
   subnets_psc = [
     {
-      ip_cidr_range = "10.0.0.0/24"
+      ip_cidr_range = "10.4.0.0/24"
       name          = "psc-projects"
       region        = var.region
     }
@@ -71,34 +71,96 @@ module "vpc_external" {
   ]
 }
 
-module "external-lb" {
-  source     = "./modules/net-lb-app-ext-regional"
-  project_id = var.project_id_02
-  name       = "external-lb"
-  vpc        = module.vpc_external.self_link
-  region     = var.region
-  backend_service_configs = {
-    default = {
-      backends = [
-        { backend = "neg-elb" }
-      ]
-      health_checks = []
-    }
-  }
 
-  health_check_configs = {}
-  neg_configs = {
-    neg-elb = {
-      psc = {
-        region         = var.region
-        subnetwork     = module.vpc_external.subnets_psc["${var.region}/external-lb"].self_link
-        target_service = module.ilb-l7.service_attachment_id
+module "vpn_ha" {
+  source     = "./modules/net-vpn-ha"
+  project_id = var.project_id_01
+  region     = var.region
+  network    = module.vpc.self_link
+  name       = "vpn-to-azure"
+  router_config = {
+
+    asn    = 64515
+    create = true
+    custom_advertise = {
+      all_subnets = true
+      ip_ranges = {
+        "10.10.0.0/24" = "default"
+      }
+  } }
+
+  peer_gateways = {
+    default = {
+      external = {
+        redundancy_type = "TWO_IPS_REDUNDANCY"
+        interfaces      = [azurerm_public_ip.vpn_public_ip_0.ip_address, azurerm_public_ip.vpn_public_ip_1.ip_address]
       }
     }
   }
 
-  #depends_on = [module.vpc_external, module.ilb-l7]
+  tunnels = {
+    remote-0 = {
+      bgp_peer = {
+        address = "169.254.21.2"
+        asn     = var.gcp_bgp_asn
+      }
+      bgp_session_range               = "169.254.21.1/30"
+      peer_external_gateway_interface = 0
+      vpn_gateway_interface           = 0
+      shared_secret                   = var.shared_secret
+    }
+
+    remote-1 = {
+      bgp_peer = {
+        address = "169.254.22.2"
+        asn     = var.gcp_bgp_asn
+      }
+      bgp_session_range               = "169.254.22.1/30"
+      peer_external_gateway_interface = 1
+      vpn_gateway_interface           = 1
+      shared_secret                   = var.shared_secret
+    }
+  }
 }
+
+# module "external-lb" {
+#   source     = "./modules/net-lb-app-ext-regional"
+#   project_id = var.project_id_02
+#   name       = "external-lb"
+#   vpc        = module.vpc_external.self_link
+#   region     = var.region
+#   backend_service_configs = {
+#     default = {
+#       backends = [
+#         { backend = "neg-elb" }
+#       ]
+#       protocol      = "HTTP"
+#       health_checks = []
+#     }
+#   }
+
+#   health_check_configs = {}
+#   neg_configs = {
+#     neg-elb = {
+#       psc = {
+#         region         = var.region
+#         subnetwork     = module.vpc_external.subnets_psc["${var.region}/external-lb"].self_link
+#         target_service = module.ilb-l7.service_attachment_id
+#       }
+#     }
+#   }
+
+#   protocol = "HTTPS"
+#   ssl_certificates = {
+#     create_configs = {
+#       default = {
+
+#         certificate = tls_self_signed_cert.default.cert_pem
+#         private_key = tls_private_key.default.private_key_pem
+#       }
+#   } }
+# }
+
 
 module "ilb-l7" {
   source     = "./modules/net-lb-app-int"
@@ -218,13 +280,13 @@ resource "google_artifact_registry_repository" "my_repo" {
   project       = var.project_id_01
 }
 
-resource "google_artifact_registry_repository_iam_binding" "binding" {
-  project = var.project_id_01
-  location = var.location
-  repository = google_artifact_registry_repository.my_repo.name
-  role = "roles/artifactregistry.reader"
-  members = ["user:${var.artifact_registry_admin}"]
-}
+# resource "google_artifact_registry_repository_iam_binding" "binding" {
+#   project    = var.project_id_01
+#   location   = var.location
+#   repository = google_artifact_registry_repository.my_repo.name
+#   role       = "roles/artifactregistry.reader"
+#   members    = ["user:${var.artifact_registry_admin}"]
+# }
 
 resource "google_iam_workload_identity_pool" "pool" {
   workload_identity_pool_id = "provider-pool"

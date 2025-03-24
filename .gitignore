@@ -3,6 +3,8 @@
 .terraform/
 *.bak
 *.swp
+*.pem
+*.pfx
 
 .python_packages
 __pycache__

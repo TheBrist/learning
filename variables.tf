@@ -106,3 +106,12 @@ variable "artifact_registry_admin" {
   type = string
   nullable = true
 }
+
+variable "shared_secret" {
+  type = string
+  sensitive = true
+}
+
+variable "gcp_bgp_asn" {
+  type = number
+}
