@@ -80,7 +80,7 @@ module "vpn_ha" {
   name       = "vpn-to-azure"
   router_config = {
 
-    asn    = 64515
+    asn    = var.azure_bgp_asn
     create = true
     custom_advertise = {
       all_subnets = true
@@ -90,7 +90,7 @@ module "vpn_ha" {
   } }
 
   peer_gateways = {
-    default = {
+    default = { 
       external = {
         redundancy_type = "TWO_IPS_REDUNDANCY"
         interfaces      = [azurerm_public_ip.vpn_public_ip_0.ip_address, azurerm_public_ip.vpn_public_ip_1.ip_address]
@@ -101,10 +101,10 @@ module "vpn_ha" {
   tunnels = {
     remote-0 = {
       bgp_peer = {
-        address = "169.254.21.2"
+        address = "169.254.21.1"
         asn     = var.gcp_bgp_asn
       }
-      bgp_session_range               = "169.254.21.1/30"
+      bgp_session_range               = "169.254.21.2/30"
       peer_external_gateway_interface = 0
       vpn_gateway_interface           = 0
       shared_secret                   = var.shared_secret

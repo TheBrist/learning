@@ -566,7 +566,7 @@ resource "azurerm_virtual_network_gateway" "gateway" {
     asn = var.gcp_bgp_asn
 
     peering_addresses {
-      apipa_addresses       = ["169.254.21.2"]
+      apipa_addresses       = ["169.254.21.1"]
       ip_configuration_name = "gatewayConfig-0"
     }
 
@@ -583,10 +583,10 @@ resource "azurerm_local_network_gateway" "local_gw0" {
   resource_group_name = var.resource_group_name
   gateway_address     = module.vpn_ha.gateway.vpn_interfaces[0].ip_address
 
-  address_space = ["10.1.0.0/16"]
+  address_space = ["10.10.0.0/24"]
 
   bgp_settings {
-    asn                 = "64513"
+    asn                 = var.azure_bgp_asn
     bgp_peering_address = module.vpn_ha.bgp_peers["remote-0"].ip_address
   }
 }
@@ -596,9 +596,9 @@ resource "azurerm_local_network_gateway" "local_gw1" {
   location            = var.location
   resource_group_name = var.resource_group_name
   gateway_address     = module.vpn_ha.gateway.vpn_interfaces[1].ip_address
-  address_space       = ["10.1.0.0/16"]
+  address_space       = ["10.10.0.0/24"]
   bgp_settings {
-    asn                 = "64513"
+    asn                 = var.azure_bgp_asn
     bgp_peering_address = module.vpn_ha.bgp_peers["remote-1"].ip_address
   }
 }

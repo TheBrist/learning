@@ -115,3 +115,7 @@ variable "shared_secret" {
 variable "gcp_bgp_asn" {
   type = number
 }
+
+variable "azure_bgp_asn" {
+  type = number
+}
