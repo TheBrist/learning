@@ -316,19 +316,14 @@ resource "azurerm_storage_account" "function_app_sa" {
   account_replication_type = "LRS"
 }
 
-# resource "azurerm_storage_container" "container" {
-#   name                  = "function-code"
-#   container_access_type = "private"
-#   storage_account_id    = azurerm_storage_account.function_app_sa.id
-# }
 
-# resource "azurerm_storage_blob" "function_code" {
-#   name                   = "function_app.zip"
-#   storage_account_name   = azurerm_storage_account.function_app_sa.name
-#   type                   = "Block"
-#   storage_container_name = azurerm_storage_container.container.name
-#   source                 = "./FunctionApp/function_app.zip"
-# }
+resource "azurerm_storage_blob" "function_code" {
+  name                   = "function_app.zip"
+  storage_account_name   = azurerm_storage_account.function_app_sa.name
+  type                   = "Block"
+  storage_container_name = azurerm_storage_container.container.name
+  source                 = "./function_app.zip"
+}
 
 resource "azurerm_service_plan" "function_app_sp" {
   name                = "app-service-plan"
@@ -359,17 +354,19 @@ resource "azurerm_linux_function_app" "function_app" {
     }
 
     application_stack {
-      python_version = "3.12"
+      python_version = "3.11"
     }
   }
 
   app_settings = {
     "FUNCTIONS_WORKER_RUNTIME" = "python"
     "WEBSITE_RUN_FROM_PACKAGE" = 1
-    #"GCP_LB_URL"               = "https://${module.external-lb.address}"
-    "GCP_AUDIENCE"     = "https://iam.googleapis.com/projects/${module.project_01.number}/locations/global/workloadIdentityPools/provider-pool/subject/azure"
-    "GCP_ACCESS_TOKEN" = var.gcp_access_token
-    "CERTIFICATE"      = base64encode(tls_self_signed_cert.default.cert_pem)
+    "ENABLE_ORYX_BUILD" = false
+    #"AzureWebJobsFeatureFlags" = "EnableWorkerIndexing"
+    "GCP_LB_URL"               = "https://${module.external-lb.address}"
+    #"GCP_AUDIENCE"     = "https://iam.googleapis.com/projects/${module.project_01.number}/locations/global/workloadIdentityPools/provider-pool/subject/azure"
+    #"GCP_ACCESS_TOKEN" = var.gcp_access_token
+    #"CERTIFICATE"      = base64encode(tls_self_signed_cert.default.cert_pem)
   }
   identity {
     type = "SystemAssigned"
@@ -487,23 +484,6 @@ resource "azurerm_key_vault_certificate" "ssc" {
   }
 }
 
-resource "tls_private_key" "default" {
-  algorithm = "RSA"
-  rsa_bits  = 2048
-}
-
-resource "tls_self_signed_cert" "default" {
-  private_key_pem = tls_private_key.default.private_key_pem
-  subject {
-    common_name = "azure.com"
-  }
-  validity_period_hours = 720
-  allowed_uses = [
-    "key_encipherment",
-    "digital_signature",
-    "server_auth",
-  ]
-}
 
 resource "azurerm_key_vault_access_policy" "function_app_policy" {
   key_vault_id = azurerm_key_vault.key_vault.id
@@ -583,7 +563,7 @@ resource "azurerm_local_network_gateway" "local_gw0" {
   resource_group_name = var.resource_group_name
   gateway_address     = module.vpn_ha.gateway.vpn_interfaces[0].ip_address
 
-  address_space = ["10.10.0.0/24"]
+  address_space = ["10.6.0.0/24"]
 
   bgp_settings {
     asn                 = var.azure_bgp_asn
@@ -596,7 +576,7 @@ resource "azurerm_local_network_gateway" "local_gw1" {
   location            = var.location
   resource_group_name = var.resource_group_name
   gateway_address     = module.vpn_ha.gateway.vpn_interfaces[1].ip_address
-  address_space       = ["10.10.0.0/24"]
+  address_space       = ["10.6.0.0/24"]
   bgp_settings {
     asn                 = var.azure_bgp_asn
     bgp_peering_address = module.vpn_ha.bgp_peers["remote-1"].ip_address
@@ -631,3 +611,4 @@ resource "azurerm_virtual_network_gateway_connection" "vpn_connection1" {
   enable_bgp = true
   shared_key = var.shared_secret
 }
+

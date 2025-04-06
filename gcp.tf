@@ -71,7 +71,6 @@ module "vpc_external" {
   ]
 }
 
-
 module "vpn_ha" {
   source     = "./modules/net-vpn-ha"
   project_id = var.project_id_01
@@ -85,12 +84,12 @@ module "vpn_ha" {
     custom_advertise = {
       all_subnets = true
       ip_ranges = {
-        "10.10.0.0/24" = "default"
+        "10.1.0.0/24" = "default"
       }
   } }
 
   peer_gateways = {
-    default = { 
+    default = {
       external = {
         redundancy_type = "TWO_IPS_REDUNDANCY"
         interfaces      = [azurerm_public_ip.vpn_public_ip_0.ip_address, azurerm_public_ip.vpn_public_ip_1.ip_address]
@@ -123,43 +122,128 @@ module "vpn_ha" {
   }
 }
 
-# module "external-lb" {
-#   source     = "./modules/net-lb-app-ext-regional"
-#   project_id = var.project_id_02
-#   name       = "external-lb"
-#   vpc        = module.vpc_external.self_link
-#   region     = var.region
-#   backend_service_configs = {
-#     default = {
-#       backends = [
-#         { backend = "neg-elb" }
-#       ]
-#       protocol      = "HTTP"
-#       health_checks = []
-#     }
-#   }
 
-#   health_check_configs = {}
-#   neg_configs = {
-#     neg-elb = {
-#       psc = {
-#         region         = var.region
-#         subnetwork     = module.vpc_external.subnets_psc["${var.region}/external-lb"].self_link
-#         target_service = module.ilb-l7.service_attachment_id
-#       }
-#     }
-#   }
+module "addresses" {
+  source     = "./modules/net-address"
+  project_id = var.project_id_02
+  external_addresses = {
+    "elb" = {
+      region = var.region
+      tier   = "STANDARD"
+    }
+  }
+}
 
-#   protocol = "HTTPS"
-#   ssl_certificates = {
-#     create_configs = {
-#       default = {
+resource "tls_private_key" "default" {
+  algorithm = "RSA"
+  rsa_bits  = 2048
+}
 
-#         certificate = tls_self_signed_cert.default.cert_pem
-#         private_key = tls_private_key.default.private_key_pem
-#       }
-#   } }
-# }
+resource "tls_self_signed_cert" "default" {
+  private_key_pem = tls_private_key.default.private_key_pem
+
+  is_ca_certificate = true
+
+  subject {
+    common_name = module.addresses.external_addresses["elb"].address
+    country     = "IL"
+    province    = "PT"
+    locality    = "PetahTikva"
+  }
+
+  validity_period_hours = 43800
+
+  allowed_uses = [
+    "key_encipherment",
+    "digital_signature",
+    "server_auth",
+    "digital_signature",
+    "cert_signing",
+    "crl_signing",
+  ]
+
+}
+
+resource "tls_private_key" "internal_pk" {
+  algorithm = "RSA"
+  rsa_bits  = 2048
+}
+
+resource "tls_cert_request" "internal_csr" {
+  private_key_pem = tls_private_key.internal_pk.private_key_pem
+
+  ip_addresses = [module.addresses.external_addresses["elb"].address]
+
+  subject {
+    common_name = module.addresses.external_addresses["elb"].address
+    country     = "IL"
+    province    = "PT"
+    locality    = "PetahTikva"
+  }
+}
+
+resource "tls_locally_signed_cert" "internal" {
+  cert_request_pem = tls_cert_request.internal_csr.cert_request_pem
+  ca_private_key_pem = tls_private_key.default.private_key_pem
+  ca_cert_pem = tls_self_signed_cert.default.cert_pem
+
+  validity_period_hours = 43800
+
+  allowed_uses = [ 
+    "key_encipherment",
+    "digital_signature",
+    "server_auth",
+    "client_auth",
+   ]
+}
+
+resource "local_file" "cert" {
+  filename = "cert.pem"
+  content  = tls_self_signed_cert.default.cert_pem
+}
+
+resource "local_file" "local_cert" {
+  filename = "certinternal.pem"
+  content  = tls_locally_signed_cert.internal.cert_pem
+}
+
+module "external-lb" {
+  source     = "./modules/net-lb-app-ext-regional"
+  project_id = var.project_id_02
+  name       = "external-lb"
+  vpc        = module.vpc_external.self_link
+  region     = var.region
+  address    = module.addresses.external_addresses["elb"].id
+  backend_service_configs = {
+    default = {
+      backends = [
+        { backend = "neg-elb" }
+      ]
+      protocol      = "HTTP"
+      health_checks = []
+    }
+  }
+
+  health_check_configs = {}
+  neg_configs = {
+    neg-elb = {
+      psc = {
+        region         = var.region
+        subnetwork     = module.vpc_external.subnets_psc["${var.region}/external-lb"].self_link
+        target_service = module.ilb-l7.service_attachment_id
+      }
+    }
+  }
+
+  protocol = "HTTPS"
+  ssl_certificates = {
+    create_configs = {
+      external-lba = {
+        certificate = tls_locally_signed_cert.internal.cert_pem
+        private_key = tls_private_key.internal_pk.private_key_pem
+      }
+  } }
+}
 
 
 module "ilb-l7" {
@@ -231,11 +315,8 @@ module "cloud_run_sa" {
     "${var.project_id_01}" = [
       "roles/storage.admin"
     ]
-  }
 
-  # iam = {
-  #   "roles/iam.workloadIdentityUser" = ["principal://iam.googleapis.com/projects/${module.project_01.number}/locations/global/workloadIdentityPools/provider-pool/providers/azure"]
-  # }
+  }
 }
 
 module "azure_sa" {
@@ -243,13 +324,15 @@ module "azure_sa" {
   project_id   = var.project_id_01
   name         = "azuresa"
   display_name = "Azure SA for Cloud Run"
-  # iam = {
-  #   "roles/iam.workloadIdentityUser" = ["principal://iam.googleapis.com/projects/${module.project_01.number}/locations/global/workloadIdentityPools/provider-pool/providers/azure"]
-  # }
+
+  iam = {
+    "roles/WorkloadIdentityUser" = ["principal://iam.googleapis.com/projects/707494097714/locations/global/workloadIdentityPools/provider-pool/azure/api://b723a5f3-fde9-455d-8867-e85ca2c1db1d"]
+  }
 
   iam_project_roles = {
     "${var.project_id_01}" = [
-      "roles/run.invoker"
+      "roles/run.invoker",
+      "roles/browser"
     ]
   }
 }
@@ -306,3 +389,9 @@ resource "google_iam_workload_identity_pool_provider" "azure_provider" {
   }
 }
 
+resource "google_service_account_iam_binding" "azure_sa_binding" {
+  role = "roles/iam.workloadIdentityUser"
+  # members = [ "principal://iam.googleapis.com/projects/${data.google_project.project_01.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.pool.id}/subject/9747d098-4c2e-4133-aca0-ab493553b172" ]
+  members            = ["principal://iam.googleapis.com/projects/707494097714/locations/global/workloadIdentityPools/provider-pool/attribute.google.subject/9747d098-4c2e-4133-aca0-ab493553b172"]
+  service_account_id = module.azure_sa.id
+}
