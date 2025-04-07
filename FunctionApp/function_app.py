@@ -1,11 +1,16 @@
+import requests
 import azure.functions as func
 import os
+import logging
+import traceback
+import json
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
 @app.route(route="http_trigger", methods=["POST"])
 def main(req: func.HttpRequest) -> func.HttpResponse:
     try:
+        
         GCP_AUDIENCE = os.environ.get("GCP_AUDIENCE")
         SUBJECT_TOKEN_TYPE = os.environ.get("SUBJECT_TOKEN_TYPE")
         TOKEN_URL = os.environ.get("TOKEN_URL")
@@ -90,7 +95,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
                 FORWARDING_IP,
                 json=req_body,
                 headers=headers,
-                verify=False, 
+                verify=False,
                 timeout=10
             )
             
@@ -103,4 +108,5 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
             return func.HttpResponse(f"Error when calling GCP endpoint: {str(e)}", status_code=500)
             
     except Exception as e:
+        logging.error(f"Unhandled exception: {str(e)}")
         return func.HttpResponse(f"Unhandled error: {str(e)}", status_code=500)
