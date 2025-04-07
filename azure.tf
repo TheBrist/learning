@@ -316,14 +316,19 @@ resource "azurerm_storage_account" "function_app_sa" {
   account_replication_type = "LRS"
 }
 
+#  resource "azurerm_storage_container" "container" {
+#    name                  = "function-code"
+#    container_access_type = "private"
+#    storage_account_id    = azurerm_storage_account.function_app_sa.id
+#  }
 
-resource "azurerm_storage_blob" "function_code" {
-  name                   = "function_app.zip"
-  storage_account_name   = azurerm_storage_account.function_app_sa.name
-  type                   = "Block"
-  storage_container_name = azurerm_storage_container.container.name
-  source                 = "./function_app.zip"
-}
+# resource "azurerm_storage_blob" "function_code" {
+#   name                   = "function_app.zip"
+#   storage_account_name   = azurerm_storage_account.function_app_sa.name
+#   type                   = "Block"
+#   storage_container_name = azurerm_storage_container.container.name
+#   source                 = "./function_app.zip"
+# }
 
 resource "azurerm_service_plan" "function_app_sp" {
   name                = "app-service-plan"
@@ -334,7 +339,7 @@ resource "azurerm_service_plan" "function_app_sp" {
 }
 
 resource "azurerm_linux_function_app" "function_app" {
-  name                = "linux-function-app1"
+  name                = "linux-function-app-1"
   resource_group_name = var.resource_group_name
   location            = var.location
 
@@ -359,13 +364,16 @@ resource "azurerm_linux_function_app" "function_app" {
   }
 
   app_settings = {
-    "FUNCTIONS_WORKER_RUNTIME" = "python"
-    "WEBSITE_RUN_FROM_PACKAGE" = 1
-    "ENABLE_ORYX_BUILD" = false
-    #"AzureWebJobsFeatureFlags" = "EnableWorkerIndexing"
-    "GCP_LB_URL"               = "https://${module.external-lb.address}"
-    #"GCP_AUDIENCE"     = "https://iam.googleapis.com/projects/${module.project_01.number}/locations/global/workloadIdentityPools/provider-pool/subject/azure"
-    #"GCP_ACCESS_TOKEN" = var.gcp_access_token
+    "FUNCTIONS_WORKER_RUNTIME"          = "python"
+    "WEBSITE_RUN_FROM_PACKAGE"          = 1
+    "ENABLE_ORYX_BUILD"                 = false
+    "GCP_AUDIENCE"                      = "//iam.googleapis.com/projects/${module.project_01.number}/locations/global/workloadIdentityPools/provider-pool/providers/azure"
+    "CREDENTIAL_SOURCE"                 = "http://169.254.169.254/metadata/identity/oauthz2/token?api-version=2018-02-01&resource=${var.azure_app_uri}"
+    "FORWARDING_IP"                     = "https://34.0.66.120:443"
+    "SUBJECT_TOKEN_TYPE"                = "urn:ietf:params:oauth:token-type:jwt"
+    "TOKEN_URL"                         = "https://sts.googleapis.com/v1/token"
+    "CLOUD_RUN_URL"                     = module.cloud_run.service.urls[0]
+    "SERVICE_ACCOUNT_IMPERSONATION_URL" = "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${module.azure_sa.email}:generateIdToken"
     #"CERTIFICATE"      = base64encode(tls_self_signed_cert.default.cert_pem)
   }
   identity {
@@ -400,7 +408,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "dns_link" {
 }
 
 resource "azurerm_private_dns_a_record" "dns_a_record" {
-  name                = "linux-function-app1"
+  name                = "linux-function-app-1"
   resource_group_name = var.resource_group_name
   ttl                 = 3600
   zone_name           = azurerm_private_dns_zone.function_app_dns.name
@@ -484,7 +492,6 @@ resource "azurerm_key_vault_certificate" "ssc" {
   }
 }
 
-
 resource "azurerm_key_vault_access_policy" "function_app_policy" {
   key_vault_id = azurerm_key_vault.key_vault.id
   tenant_id    = var.tenant_id
@@ -494,121 +501,4 @@ resource "azurerm_key_vault_access_policy" "function_app_policy" {
   certificate_permissions = ["Get", "List"]
 }
 
-resource "azurerm_subnet" "gateway_subnet" {
-  name                 = "GatewaySubnet"
-  resource_group_name  = var.resource_group_name
-  virtual_network_name = var.vnet_func_app_name
-  address_prefixes     = ["10.1.255.0/27"]
-}
-
-resource "azurerm_public_ip" "vpn_public_ip_0" {
-  name                = "azure-to-gcp-ip-0"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  allocation_method   = "Static"
-  sku                 = "Standard"
-}
-
-resource "azurerm_public_ip" "vpn_public_ip_1" {
-  name                = "azure-to-gcp-ip-1"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  allocation_method   = "Static"
-  sku                 = "Standard"
-}
-
-resource "azurerm_virtual_network_gateway" "gateway" {
-  name                = "vpn-gateway"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-
-  type          = "Vpn"
-  vpn_type      = "RouteBased"
-  sku           = "VpnGw1"
-  active_active = true
-  enable_bgp    = true
-
-  ip_configuration {
-    name                          = "gatewayConfig-0"
-    public_ip_address_id          = azurerm_public_ip.vpn_public_ip_0.id
-    subnet_id                     = azurerm_subnet.gateway_subnet.id
-    private_ip_address_allocation = "Dynamic"
-  }
-
-  ip_configuration {
-    name                          = "gatewayConfig-1"
-    public_ip_address_id          = azurerm_public_ip.vpn_public_ip_1.id
-    subnet_id                     = azurerm_subnet.gateway_subnet.id
-    private_ip_address_allocation = "Dynamic"
-  }
-
-  bgp_settings {
-    asn = var.gcp_bgp_asn
-
-    peering_addresses {
-      apipa_addresses       = ["169.254.21.1"]
-      ip_configuration_name = "gatewayConfig-0"
-    }
-
-    peering_addresses {
-      apipa_addresses       = ["169.254.22.2"]
-      ip_configuration_name = "gatewayConfig-1"
-    }
-  }
-}
-
-resource "azurerm_local_network_gateway" "local_gw0" {
-  name                = "gcp-local-network-gateway-0"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  gateway_address     = module.vpn_ha.gateway.vpn_interfaces[0].ip_address
-
-  address_space = ["10.6.0.0/24"]
-
-  bgp_settings {
-    asn                 = var.azure_bgp_asn
-    bgp_peering_address = module.vpn_ha.bgp_peers["remote-0"].ip_address
-  }
-}
-
-resource "azurerm_local_network_gateway" "local_gw1" {
-  name                = "gcp-local-network-gateway-1"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  gateway_address     = module.vpn_ha.gateway.vpn_interfaces[1].ip_address
-  address_space       = ["10.6.0.0/24"]
-  bgp_settings {
-    asn                 = var.azure_bgp_asn
-    bgp_peering_address = module.vpn_ha.bgp_peers["remote-1"].ip_address
-  }
-}
-
-resource "azurerm_virtual_network_gateway_connection" "vpn_connection0" {
-  name                = "azure-to-gcp-vpn-connection-0"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-
-  type = "IPsec"
-
-  virtual_network_gateway_id = azurerm_virtual_network_gateway.gateway.id
-  local_network_gateway_id   = azurerm_local_network_gateway.local_gw0.id
-
-  enable_bgp = true
-  shared_key = var.shared_secret
-
-}
-
-resource "azurerm_virtual_network_gateway_connection" "vpn_connection1" {
-  name                = "azure-to-gcp-vpn-connection-1"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-
-  type = "IPsec"
-
-  virtual_network_gateway_id = azurerm_virtual_network_gateway.gateway.id
-  local_network_gateway_id   = azurerm_local_network_gateway.local_gw1.id
-
-  enable_bgp = true
-  shared_key = var.shared_secret
-}
 
