@@ -2,10 +2,6 @@ provider "google" {
   region = var.region
 }
 
-data "google_project" "project_01" {
-  project_id = var.project_id_01
-}
-
 module "project_01" {
   source          = "./modules/project"
   name            = var.project_id_01
@@ -71,58 +67,6 @@ module "vpc_external" {
   ]
 }
 
-module "vpn_ha" {
-  source     = "./modules/net-vpn-ha"
-  project_id = var.project_id_01
-  region     = var.region
-  network    = module.vpc.self_link
-  name       = "vpn-to-azure"
-  router_config = {
-
-    asn    = var.azure_bgp_asn
-    create = true
-    custom_advertise = {
-      all_subnets = true
-      ip_ranges = {
-        "10.1.0.0/24" = "default"
-      }
-  } }
-
-  peer_gateways = {
-    default = {
-      external = {
-        redundancy_type = "TWO_IPS_REDUNDANCY"
-        interfaces      = [azurerm_public_ip.vpn_public_ip_0.ip_address, azurerm_public_ip.vpn_public_ip_1.ip_address]
-      }
-    }
-  }
-
-  tunnels = {
-    remote-0 = {
-      bgp_peer = {
-        address = "169.254.21.1"
-        asn     = var.gcp_bgp_asn
-      }
-      bgp_session_range               = "169.254.21.2/30"
-      peer_external_gateway_interface = 0
-      vpn_gateway_interface           = 0
-      shared_secret                   = var.shared_secret
-    }
-
-    remote-1 = {
-      bgp_peer = {
-        address = "169.254.22.2"
-        asn     = var.gcp_bgp_asn
-      }
-      bgp_session_range               = "169.254.22.1/30"
-      peer_external_gateway_interface = 1
-      vpn_gateway_interface           = 1
-      shared_secret                   = var.shared_secret
-    }
-  }
-}
-
-
 module "addresses" {
   source     = "./modules/net-address"
   project_id = var.project_id_02
@@ -183,29 +127,29 @@ resource "tls_cert_request" "internal_csr" {
 }
 
 resource "tls_locally_signed_cert" "internal" {
-  cert_request_pem = tls_cert_request.internal_csr.cert_request_pem
+  cert_request_pem   = tls_cert_request.internal_csr.cert_request_pem
   ca_private_key_pem = tls_private_key.default.private_key_pem
-  ca_cert_pem = tls_self_signed_cert.default.cert_pem
+  ca_cert_pem        = tls_self_signed_cert.default.cert_pem
 
   validity_period_hours = 43800
 
-  allowed_uses = [ 
+  allowed_uses = [
     "key_encipherment",
     "digital_signature",
     "server_auth",
     "client_auth",
-   ]
+  ]
 }
 
-resource "local_file" "cert" {
-  filename = "cert.pem"
-  content  = tls_self_signed_cert.default.cert_pem
-}
+# resource "local_file" "cert" {
+#   filename = "cert.pem"
+#   content  = tls_self_signed_cert.default.cert_pem
+# }
 
-resource "local_file" "local_cert" {
-  filename = "certinternal.pem"
-  content  = tls_locally_signed_cert.internal.cert_pem
-}
+# resource "local_file" "local_cert" {
+#   filename = "certinternal.pem"
+#   content  = tls_locally_signed_cert.internal.cert_pem
+# }
 
 module "external-lb" {
   source     = "./modules/net-lb-app-ext-regional"
@@ -326,14 +270,16 @@ module "azure_sa" {
   display_name = "Azure SA for Cloud Run"
 
   iam = {
-    "roles/WorkloadIdentityUser" = ["principal://iam.googleapis.com/projects/707494097714/locations/global/workloadIdentityPools/provider-pool/azure/api://b723a5f3-fde9-455d-8867-e85ca2c1db1d"]
+    "roles/iam.serviceAccountTokenCreator" = [  
+      "principalSet://iam.googleapis.com/projects/707494097714/locations/global/workloadIdentityPools/provider-pool/*",
+    ]
   }
 
   iam_project_roles = {
     "${var.project_id_01}" = [
       "roles/run.invoker",
-      "roles/browser"
-    ]
+      "roles/browser",
+    ],
   }
 }
 
@@ -381,17 +327,15 @@ resource "google_iam_workload_identity_pool_provider" "azure_provider" {
   workload_identity_pool_id          = google_iam_workload_identity_pool.pool.workload_identity_pool_id
   workload_identity_pool_provider_id = "azure"
   project                            = var.project_id_01
+  display_name                       = "azure"
+
   attribute_mapping = {
     "google.subject" = "assertion.sub"
+    "attribute.aud"  = "assertion.aud"
   }
-  oidc {
-    issuer_uri = "https://sts.windows.net/${var.tenant_id}/"
-  }
-}
 
-resource "google_service_account_iam_binding" "azure_sa_binding" {
-  role = "roles/iam.workloadIdentityUser"
-  # members = [ "principal://iam.googleapis.com/projects/${data.google_project.project_01.number}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.pool.id}/subject/9747d098-4c2e-4133-aca0-ab493553b172" ]
-  members            = ["principal://iam.googleapis.com/projects/707494097714/locations/global/workloadIdentityPools/provider-pool/attribute.google.subject/9747d098-4c2e-4133-aca0-ab493553b172"]
-  service_account_id = module.azure_sa.id
+  oidc {
+    issuer_uri        = "https://sts.windows.net/${var.tenant_id}/"
+    allowed_audiences = [var.azure_app_uri]
+  }
 }
