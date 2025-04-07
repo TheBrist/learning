@@ -1,4 +1,3 @@
-import requests
 import azure.functions as func
 import os
 

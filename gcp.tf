@@ -1,6 +1,4 @@
-provider "google" {
-  region = var.region
-}
+
 
 module "project_01" {
   source          = "./modules/project"
@@ -140,16 +138,6 @@ resource "tls_locally_signed_cert" "internal" {
     "client_auth",
   ]
 }
-
-# resource "local_file" "cert" {
-#   filename = "cert.pem"
-#   content  = tls_self_signed_cert.default.cert_pem
-# }
-
-# resource "local_file" "local_cert" {
-#   filename = "certinternal.pem"
-#   content  = tls_locally_signed_cert.internal.cert_pem
-# }
 
 module "external-lb" {
   source     = "./modules/net-lb-app-ext-regional"
