@@ -1,6 +1,4 @@
-provider "azurerm" {
-  features {}
-  subscription_id = "cb6a7a77-cdd1-4d79-974a-d6917ccb4ff7"
+data "azurerm_client_config" "current" {
 }
 
 locals {
@@ -283,8 +281,7 @@ resource "azurerm_virtual_machine" "vm" {
   delete_os_disk_on_termination    = true
 
   identity {
-    type         = "UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.managed_identity.id]
+    type         = "SystemAssigned"
   }
 }
 
@@ -339,7 +336,7 @@ resource "azurerm_service_plan" "function_app_sp" {
 }
 
 resource "azurerm_linux_function_app" "function_app" {
-  name                = "linux-function-app-1"
+  name                = var.function_app_name
   resource_group_name = var.resource_group_name
   location            = var.location
 
@@ -367,9 +364,8 @@ resource "azurerm_linux_function_app" "function_app" {
     "FUNCTIONS_WORKER_RUNTIME"          = "python"
     "WEBSITE_RUN_FROM_PACKAGE"          = 1
     "ENABLE_ORYX_BUILD"                 = false
-    "GCP_AUDIENCE"                      = "//iam.googleapis.com/projects/${module.project_01.number}/locations/global/workloadIdentityPools/provider-pool/providers/azure"
-    "CREDENTIAL_SOURCE"                 = "http://169.254.169.254/metadata/identity/oauthz2/token?api-version=2018-02-01&resource=${var.azure_app_uri}"
-    "FORWARDING_IP"                     = "https://34.0.66.120:443"
+    "GCP_AUDIENCE"                      = "//iam.googleapis.com/projects/${module.project_01.number}/locations/global/workloadIdentityPools/${var.workload_pool_id}/providers/azure"
+    "FORWARDING_IP"                     = "https://34.0.66.120"
     "SUBJECT_TOKEN_TYPE"                = "urn:ietf:params:oauth:token-type:jwt"
     "TOKEN_URL"                         = "https://sts.googleapis.com/v1/token"
     "CLOUD_RUN_URL"                     = module.cloud_run.service.urls[0]
@@ -408,7 +404,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "dns_link" {
 }
 
 resource "azurerm_private_dns_a_record" "dns_a_record" {
-  name                = "linux-function-app-1"
+  name                = var.function_app_name
   resource_group_name = var.resource_group_name
   ttl                 = 3600
   zone_name           = azurerm_private_dns_zone.function_app_dns.name
@@ -428,15 +424,6 @@ resource "azurerm_private_endpoint" "storage_endpoint" {
     subresource_names              = ["blob"]
     is_manual_connection           = false
   }
-}
-
-resource "azurerm_user_assigned_identity" "managed_identity" {
-  location            = var.location
-  name                = "vm-identity"
-  resource_group_name = var.resource_group_name
-}
-
-data "azurerm_client_config" "current" {
 }
 
 resource "azurerm_key_vault" "key_vault" {
@@ -464,7 +451,7 @@ resource "azurerm_key_vault_certificate" "ssc" {
   key_vault_id = azurerm_key_vault.key_vault.id
 
   certificate {
-    contents = "${tls_self_signed_cert.default.cert_pem}\n${tls_private_key.default.private_key_pem_pkcs8}"
+    contents = "${tls_self_signed_cert.default.cert_pem}"
   }
   certificate_policy {
     issuer_parameters {
@@ -481,7 +468,7 @@ resource "azurerm_key_vault_certificate" "ssc" {
     }
     x509_certificate_properties {
 
-      subject            = "CN=azure.com"
+      subject            = "CN=https://34.0.66.120"
       validity_in_months = 12
       key_usage = [
         "digitalSignature",

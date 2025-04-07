@@ -18,6 +18,24 @@ module "project_02" {
   services = var.project_02_apis
 }
 
+# module "folder_netanel" {
+#   source = "./modules/folder"
+#   parent = "folders/${var.project_parent_folder_id}"
+#   name = "Netanel"
+# }
+
+# module "folder_01" {
+#   source = "./modules/folder"
+#   parent = "folders/${module.folder_netanel.id}"
+#   name = "folder-netanel-1"
+# }
+
+# module "folder_02" {
+#   source = "./modules/folder"
+#   parent = "folders/${module.folder_netanel.id}"
+#   name = "folder-netanel-2"
+# }
+
 module "vpc" {
   source     = "./modules/net-vpc"
   project_id = var.project_id_01
@@ -103,40 +121,6 @@ resource "tls_self_signed_cert" "default" {
     "cert_signing",
     "crl_signing",
   ]
-
-}
-
-resource "tls_private_key" "internal_pk" {
-  algorithm = "RSA"
-  rsa_bits  = 2048
-}
-
-resource "tls_cert_request" "internal_csr" {
-  private_key_pem = tls_private_key.internal_pk.private_key_pem
-
-  ip_addresses = [module.addresses.external_addresses["elb"].address]
-
-  subject {
-    common_name = module.addresses.external_addresses["elb"].address
-    country     = "IL"
-    province    = "PT"
-    locality    = "PetahTikva"
-  }
-}
-
-resource "tls_locally_signed_cert" "internal" {
-  cert_request_pem   = tls_cert_request.internal_csr.cert_request_pem
-  ca_private_key_pem = tls_private_key.default.private_key_pem
-  ca_cert_pem        = tls_self_signed_cert.default.cert_pem
-
-  validity_period_hours = 43800
-
-  allowed_uses = [
-    "key_encipherment",
-    "digital_signature",
-    "server_auth",
-    "client_auth",
-  ]
 }
 
 module "external-lb" {
@@ -171,8 +155,8 @@ module "external-lb" {
   ssl_certificates = {
     create_configs = {
       external-lba = {
-        certificate = tls_locally_signed_cert.internal.cert_pem
-        private_key = tls_private_key.internal_pk.private_key_pem
+        certificate = tls_self_signed_cert.default.cert_pem
+        private_key = tls_private_key.default.private_key_pem
       }
   } }
 }
@@ -196,7 +180,7 @@ module "ilb-l7" {
       cloudrun = {
         region = var.region
         target_service = {
-          name = "cloudrun123"
+          name = var.cloud_run_name
         }
       }
     }
@@ -220,7 +204,7 @@ module "cloud_run" {
   source     = "./modules/cloud-run-v2"
   project_id = var.project_id_01
   region     = var.region
-  name       = "cloudrun123"
+  name       = var.cloud_run_name
   containers = {
     storage-api = {
       image = "${var.region}-docker.pkg.dev/${var.project_id_01}/${google_artifact_registry_repository.my_repo.repository_id}/testapi:latest"
@@ -258,8 +242,8 @@ module "azure_sa" {
   display_name = "Azure SA for Cloud Run"
 
   iam = {
-    "roles/iam.serviceAccountTokenCreator" = [  
-      "principalSet://iam.googleapis.com/projects/707494097714/locations/global/workloadIdentityPools/provider-pool/*",
+    "roles/iam.serviceAccountTokenCreator" = [
+      "principalSet://iam.googleapis.com/projects/${module.project_01.number}/locations/global/workloadIdentityPools/${var.workload_pool_id}/*",
     ]
   }
 
@@ -297,16 +281,8 @@ resource "google_artifact_registry_repository" "my_repo" {
   project       = var.project_id_01
 }
 
-# resource "google_artifact_registry_repository_iam_binding" "binding" {
-#   project    = var.project_id_01
-#   location   = var.location
-#   repository = google_artifact_registry_repository.my_repo.name
-#   role       = "roles/artifactregistry.reader"
-#   members    = ["user:${var.artifact_registry_admin}"]
-# }
-
 resource "google_iam_workload_identity_pool" "pool" {
-  workload_identity_pool_id = "provider-pool"
+  workload_identity_pool_id = var.workload_pool_id
   display_name              = "Provider workload pool"
   project                   = var.project_id_01
 }
@@ -319,7 +295,7 @@ resource "google_iam_workload_identity_pool_provider" "azure_provider" {
 
   attribute_mapping = {
     "google.subject" = "assertion.sub"
-    "attribute.aud"  = "assertion.aud"
+    #"attribute.aud"  = "assertion.aud"
   }
 
   oidc {

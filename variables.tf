@@ -98,17 +98,17 @@ variable "project_02_apis" {
 }
 
 variable "gcp_access_token" {
-  type = string
+  type     = string
   nullable = true
 }
 
 variable "artifact_registry_admin" {
-  type = string
+  type     = string
   nullable = true
 }
 
 variable "shared_secret" {
-  type = string
+  type      = string
   sensitive = true
 }
 
@@ -118,4 +118,33 @@ variable "gcp_bgp_asn" {
 
 variable "azure_bgp_asn" {
   type = number
+}
+
+variable "azure_app_uri" {
+  type = string
+}
+
+variable "apipa_address_0" {
+  type = string
+}
+
+
+variable "apipa_address_1" {
+  type = string
+}
+
+variable "project_parent_folder_id" {
+  type = string
+}
+
+variable "cloud_run_name" {
+  type = string
+}
+
+variable "workload_pool_id" {
+  type = string
+}
+
+variable "function_app_name" {
+  type = string
 }
