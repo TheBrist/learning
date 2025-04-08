@@ -123,40 +123,6 @@ resource "azurerm_network_security_group" "nsg_vm" {
     source_address_prefix      = local.subnets[var.subnet_vm_name].address
     destination_address_prefix = local.subnets["subnet-private-endpoints"].address
   }
-  security_rule {
-    name                       = "Allow-FunctionApp-HTTP"
-    priority                   = 103
-    direction                  = "Outbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "80"
-    source_address_prefix      = local.subnets[var.subnet_vm_name].address
-    destination_address_prefix = local.subnets[var.subnet_function_app_name].address
-  }
-
-  security_rule {
-    name                       = "Allow-FunctionApp-PE-HTTP"
-    priority                   = 104
-    direction                  = "Outbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "80"
-    source_address_prefix      = local.subnets[var.subnet_vm_name].address
-    destination_address_prefix = local.subnets["subnet-private-endpoints"].address
-  }
-  security_rule {
-    name                       = "Allow-FA-PE"
-    priority                   = 100
-    direction                  = "Outbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "80"
-    source_address_prefix      = local.subnets[var.subnet_vm_name].address
-    destination_address_prefix = local.subnets["subnet-private-endpoints"].address
-  }
 
   security_rule {
     name                       = "Deny-All-Inbound"
@@ -313,20 +279,6 @@ resource "azurerm_storage_account" "function_app_sa" {
   account_replication_type = "LRS"
 }
 
-#  resource "azurerm_storage_container" "container" {
-#    name                  = "function-code"
-#    container_access_type = "private"
-#    storage_account_id    = azurerm_storage_account.function_app_sa.id
-#  }
-
-# resource "azurerm_storage_blob" "function_code" {
-#   name                   = "function_app.zip"
-#   storage_account_name   = azurerm_storage_account.function_app_sa.name
-#   type                   = "Block"
-#   storage_container_name = azurerm_storage_container.container.name
-#   source                 = "./function_app.zip"
-# }
-
 resource "azurerm_service_plan" "function_app_sp" {
   name                = "app-service-plan"
   resource_group_name = var.resource_group_name
@@ -370,7 +322,7 @@ resource "azurerm_linux_function_app" "function_app" {
     "TOKEN_URL"                         = "https://sts.googleapis.com/v1/token"
     "CLOUD_RUN_URL"                     = module.cloud_run.service.urls[0]
     "SERVICE_ACCOUNT_IMPERSONATION_URL" = "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${module.azure_sa.email}:generateIdToken"
-    #"CERTIFICATE"      = base64encode(tls_self_signed_cert.default.cert_pem)
+    "CERTIFICATE"      = base64encode(tls_self_signed_cert.default.cert_pem)
   }
   identity {
     type = "SystemAssigned"
@@ -425,67 +377,3 @@ resource "azurerm_private_endpoint" "storage_endpoint" {
     is_manual_connection           = false
   }
 }
-
-resource "azurerm_key_vault" "key_vault" {
-  name                     = "examplekv1234"
-  location                 = var.location
-  resource_group_name      = var.resource_group_name
-  tenant_id                = data.azurerm_client_config.current.tenant_id
-  sku_name                 = "standard"
-  purge_protection_enabled = false
-
-  access_policy {
-    tenant_id = data.azurerm_client_config.current.tenant_id
-    object_id = data.azurerm_client_config.current.object_id
-
-    certificate_permissions = [
-      "Get", "List", "Delete", "Create", "Import", "Update",
-      "GetIssuers", "ListIssuers", "SetIssuers",
-      "DeleteIssuers", "ManageIssuers", "Recover", "Backup", "Restore"
-    ]
-  }
-}
-
-resource "azurerm_key_vault_certificate" "ssc" {
-  name         = "my-cert"
-  key_vault_id = azurerm_key_vault.key_vault.id
-
-  certificate {
-    contents = "${tls_self_signed_cert.default.cert_pem}"
-  }
-  certificate_policy {
-    issuer_parameters {
-      name = "Self"
-    }
-    key_properties {
-      exportable = true
-      key_type   = "RSA"
-      key_size   = 2048
-      reuse_key  = true
-    }
-    secret_properties {
-      content_type = "application/x-pem-file"
-    }
-    x509_certificate_properties {
-
-      subject            = "CN=https://34.0.66.120"
-      validity_in_months = 12
-      key_usage = [
-        "digitalSignature",
-        "keyEncipherment",
-        "keyCertSign"
-      ]
-    }
-  }
-}
-
-resource "azurerm_key_vault_access_policy" "function_app_policy" {
-  key_vault_id = azurerm_key_vault.key_vault.id
-  tenant_id    = var.tenant_id
-  object_id    = azurerm_linux_function_app.function_app.identity[0].principal_id
-
-  secret_permissions      = ["Get", "List"]
-  certificate_permissions = ["Get", "List"]
-}
-
-
