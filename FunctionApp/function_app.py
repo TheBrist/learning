@@ -2,8 +2,8 @@ import requests
 import azure.functions as func
 import os
 import logging
-import traceback
-import json
+import tempfile
+import base64
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
@@ -17,7 +17,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         SERVICE_ACCOUNT_IMPERSONATION_URL = os.environ.get("SERVICE_ACCOUNT_IMPERSONATION_URL")
         CLOUD_RUN_URL = os.environ.get("CLOUD_RUN_URL")
         FORWARDING_IP = os.environ.get("FORWARDING_IP")
-        
+        CERTIFICATE = os.environ.get("CERTIFICATE")
+
         try:
             identity_endpoint = os.environ.get("IDENTITY_ENDPOINT")
             identity_header = os.environ.get("IDENTITY_HEADER")
@@ -90,12 +91,17 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         
         try:
             req_body = req.get_json()
-            
+
+            cert_content = base64.b64decode(CERTIFICATE).decode('utf-8')
+            temp_file_handle, temp_file_path = tempfile.mkstemp(suffix='.pem')
+            with os.fdopen(temp_file_handle, 'w') as temp_file:
+                temp_file.write(cert_content)
+
             response = requests.post(
                 FORWARDING_IP,
                 json=req_body,
                 headers=headers,
-                verify=False,
+                verify=temp_file_path,
                 timeout=10
             )
             
