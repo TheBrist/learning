@@ -1,0 +1,14 @@
+{
+  "bindings": [
+    {
+      "type": "httpTrigger",
+      "direction": "in",
+      "route": "orders",
+      "authLevel": "anonymous"
+    },
+    {
+      "type": "http",
+      "direction": "out"
+    }
+  ]
+}
